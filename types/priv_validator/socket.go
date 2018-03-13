@@ -376,16 +376,11 @@ func (rs *RemoteSigner) OnStop() {
 }
 
 func (rs *RemoteSigner) connect() (net.Conn, error) {
-	retries := defaultDialRetries
-
-RETRY_LOOP:
-	for retries > 0 {
+	for retries := rs.connRetries; retries > 0; retries-- {
 		// Don't sleep if it is the first retry.
-		if retries != defaultDialRetries {
+		if retries != rs.connRetries {
 			time.Sleep(rs.connDeadline)
 		}
-
-		retries--
 
 		conn, err := cmn.Connect(rs.addr)
 		if err != nil {
@@ -395,7 +390,7 @@ RETRY_LOOP:
 				"err", errors.Wrap(err, "connection failed"),
 			)
 
-			continue RETRY_LOOP
+			continue
 		}
 
 		if err := conn.SetDeadline(time.Now().Add(connDeadline)); err != nil {
@@ -408,13 +403,12 @@ RETRY_LOOP:
 
 		conn, err = p2pconn.MakeSecretConnection(conn, rs.privKey.Wrap())
 		if err != nil {
-			panic(err)
 			rs.Logger.Error(
 				"connect",
 				"err", errors.Wrap(err, "encrypting connection failed"),
 			)
 
-			continue RETRY_LOOP
+			continue
 		}
 
 		return conn, nil

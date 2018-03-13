@@ -1,7 +1,7 @@
 package types
 
 import (
-	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -151,40 +151,66 @@ func TestSocketClientDeadline(t *testing.T) {
 }
 
 func TestSocketClientWait(t *testing.T) {
-	var (
-		assert, _ = assert.New(t), require.New(t)
-		logger    = log.TestingLogger()
-		sc        = NewSocketClient(
-			logger,
-			"127.0.0.1:0",
-			crypto.GenPrivKeyEd25519(),
-		)
+	sc := NewSocketClient(
+		log.TestingLogger(),
+		"127.0.0.1:0",
+		crypto.GenPrivKeyEd25519(),
 	)
-
 	defer sc.Stop()
 
 	SocketClientConnWait(time.Millisecond)(sc)
 
-	assert.EqualError(sc.Start(), ErrConnWaitTimeout.Error())
+	assert.Equal(t, errors.Cause(sc.Start()), ErrConnWaitTimeout)
 }
 
 func TestRemoteSignerRetry(t *testing.T) {
 	var (
-		assert, _ = assert.New(t), require.New(t)
-		rs        = NewRemoteSigner(
-			log.TestingLogger(),
-			cmn.RandStr(12),
-			"127.0.0.1:0",
-			NewTestPrivValidator(types.GenSigner()),
-			crypto.GenPrivKeyEd25519(),
-		)
+		attemptc = make(chan int)
+		retries  = 2
+	)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	go func(ln net.Listener, attemptc chan<- int) {
+		attempts := 0
+
+		for {
+			conn, err := ln.Accept()
+			require.NoError(t, err)
+
+			err = conn.Close()
+			require.NoError(t, err)
+
+			attempts++
+
+			if attempts == retries {
+				attemptc <- attempts
+				break
+			}
+		}
+	}(ln, attemptc)
+
+	rs := NewRemoteSigner(
+		log.TestingLogger(),
+		cmn.RandStr(12),
+		ln.Addr().String(),
+		NewTestPrivValidator(types.GenSigner()),
+		crypto.GenPrivKeyEd25519(),
 	)
 	defer rs.Stop()
 
 	RemoteSignerConnDeadline(time.Millisecond)(rs)
-	RemoteSignerConnRetries(2)(rs)
+	RemoteSignerConnRetries(retries)(rs)
 
-	assert.EqualError(rs.Start(), ErrDialRetryMax.Error())
+	assert.Equal(t, errors.Cause(rs.Start()), ErrDialRetryMax)
+
+	select {
+	case attempts := <-attemptc:
+		assert.Equal(t, retries, attempts)
+	case <-time.After(100 * time.Millisecond):
+		t.Error("expected remote to observe connection attempts")
+	}
 }
 
 func testSetupSocketPair(
@@ -212,7 +238,6 @@ func testSetupSocketPair(
 	}()
 
 	for sc.listener == nil {
-		fmt.Println("nil")
 	}
 
 	rs := NewRemoteSigner(
