@@ -11,32 +11,42 @@ import (
 	wire "github.com/tendermint/go-wire"
 	cmn "github.com/tendermint/tmlibs/common"
 	"github.com/tendermint/tmlibs/log"
-	"golang.org/x/net/netutil"
 
 	p2pconn "github.com/tendermint/tendermint/p2p/conn"
 	"github.com/tendermint/tendermint/types"
 )
 
 const (
-	defaultConnDeadlineSeconds = 3
-	defaultConnWaitSeconds     = 60
-	defaultDialRetries         = 10
-	defaultSignersMax          = 1
+	defaultAcceptDeadlineSeconds = 3
+	defaultConnDeadlineSeconds   = 3
+	defaultConnWaitSeconds       = 60
+	defaultDialRetries           = 10
 )
 
 // Socket errors.
 var (
-	ErrDialRetryMax    = errors.New("Error max client retries")
-	ErrConnWaitTimeout = errors.New("Error waiting for external connection")
-	ErrConnTimeout     = errors.New("Error connection timed out")
+	ErrDialRetryMax    = errors.New("dialed maximum retries")
+	ErrConnWaitTimeout = errors.New("waited for remote signer timed out")
+	ErrConnTimeout     = errors.New("remote signer timed out")
 )
 
 var (
-	connDeadline = time.Second * defaultConnDeadlineSeconds
+	acceptDeadline = time.Second + defaultAcceptDeadlineSeconds
+	connDeadline   = time.Second * defaultConnDeadlineSeconds
 )
+
+type timeoutError interface {
+	Timeout() bool
+}
 
 // SocketClientOption sets an optional parameter on the SocketClient.
 type SocketClientOption func(*SocketClient)
+
+// SocketClientAcceptDeadline sets the deadline for the SocketClient listener.
+// A zero time value disables the deadline.
+func SocketClientAcceptDeadline(deadline time.Duration) SocketClientOption {
+	return func(sc *SocketClient) { sc.acceptDeadline = deadline }
+}
 
 // SocketClientConnDeadline sets the read and write deadline for connections
 // from external signing processes.
@@ -56,6 +66,7 @@ type SocketClient struct {
 	cmn.BaseService
 
 	addr            string
+	acceptDeadline  time.Duration
 	connDeadline    time.Duration
 	connWaitTimeout time.Duration
 	privKey         crypto.PrivKeyEd25519
@@ -75,7 +86,8 @@ func NewSocketClient(
 ) *SocketClient {
 	sc := &SocketClient{
 		addr:            socketAddr,
-		connDeadline:    time.Second * defaultConnDeadlineSeconds,
+		acceptDeadline:  acceptDeadline,
+		connDeadline:    connDeadline,
 		connWaitTimeout: time.Second * defaultConnWaitSeconds,
 		privKey:         privKey,
 	}
@@ -239,6 +251,13 @@ func (sc *SocketClient) SignHeartbeat(
 }
 
 func (sc *SocketClient) acceptConnection() (net.Conn, error) {
+	deadline := time.Now().Add(sc.acceptDeadline)
+
+	err := sc.listener.(*net.TCPListener).SetDeadline(deadline)
+	if err != nil {
+		return nil, err
+	}
+
 	conn, err := sc.listener.Accept()
 	if err != nil {
 		if !sc.IsRunning() {
@@ -266,7 +285,7 @@ func (sc *SocketClient) listen() error {
 		return err
 	}
 
-	sc.listener = netutil.LimitListener(ln, defaultSignersMax)
+	sc.listener = ln
 
 	return nil
 }
@@ -293,6 +312,9 @@ func (sc *SocketClient) waitConnection() (net.Conn, error) {
 	case conn := <-connc:
 		return conn, nil
 	case err := <-errc:
+		if _, ok := err.(timeoutError); ok {
+			return nil, errors.Wrap(ErrConnWaitTimeout, err.Error())
+		}
 		return nil, err
 	case <-time.After(sc.connWaitTimeout):
 		return nil, ErrConnWaitTimeout
