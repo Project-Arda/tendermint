@@ -14,6 +14,7 @@ import (
 	cmn "github.com/tendermint/tmlibs/common"
 	"github.com/tendermint/tmlibs/log"
 
+	p2pconn "github.com/tendermint/tendermint/p2p/conn"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -124,52 +125,49 @@ func TestSocketClientAcceptDeadline(t *testing.T) {
 	assert.Equal(t, errors.Cause(sc.Start()), ErrConnWaitTimeout)
 }
 
-// func TestSocketClientDeadline(t *testing.T) {
-// 	var (
-// 		addr    = fmt.Sprintf("127.0.0.1:%d", testFreePort(t))
-// 		listenc = make(chan struct{})
-// 		sc      = NewSocketClient(
-// 			log.TestingLogger(),
-// 			addr,
-// 			crypto.GenPrivKeyEd25519(),
-// 		)
-// 	)
+func TestSocketClientDeadline(t *testing.T) {
+	var (
+		addr    = testFreeAddr(t)
+		listenc = make(chan struct{})
+		sc      = NewSocketClient(
+			log.TestingLogger(),
+			addr,
+			crypto.GenPrivKeyEd25519(),
+		)
+	)
 
-// 	SocketClientConnDeadline(time.Millisecond)(sc)
-// 	// SocketClientConnWait(time.Second)(sc)
+	SocketClientConnDeadline(10 * time.Millisecond)(sc)
+	SocketClientConnWait(500 * time.Millisecond)(sc)
 
-// 	go func(sc *SocketClient) {
-// 		defer close(listenc)
+	go func(sc *SocketClient) {
+		defer close(listenc)
 
-// 		require.NoError(t, sc.Start())
-// 		defer sc.Stop()
+		require.NoError(t, sc.Start())
+		defer sc.Stop()
 
-// 		assert.True(t, sc.IsRunning())
-// 	}(sc)
+		assert.True(t, sc.IsRunning())
+	}(sc)
 
-// 	for {
-// 		conn, err := cmn.Connect(addr)
-// 		if err != nil {
-// 			continue
-// 		}
+	for {
+		conn, err := cmn.Connect(addr)
+		if err != nil {
+			continue
+		}
 
-// 		conn, err = p2pconn.MakeSecretConnection(conn, crypto.GenPrivKeyEd25519().Wrap())
-// 		if err == nil {
-// 			_, err = conn.Write([]byte("foo"))
-// 			t.Logf("%#v\n", conn)
-// 			t.Logf("%#v\n", err)
-// 			break
-// 		}
-// 	}
+		_, err = p2pconn.MakeSecretConnection(
+			conn,
+			crypto.GenPrivKeyEd25519().Wrap(),
+		)
+		if err == nil {
+			break
+		}
+	}
 
-// 	<-listenc
+	<-listenc
 
-// 	t.Logf("%#v\n", sc.conn)
-
-// 	_, err := sc.PubKey()
-// 	t.Logf("%#v\n", err)
-// 	assert.Equal(t, errors.Cause(err), ErrConnTimeout)
-// }
+	_, err := sc.PubKey()
+	assert.Equal(t, errors.Cause(err), ErrConnTimeout)
+}
 
 func TestSocketClientWait(t *testing.T) {
 	sc := NewSocketClient(
