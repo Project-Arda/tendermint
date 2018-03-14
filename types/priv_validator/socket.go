@@ -19,6 +19,7 @@ import (
 const (
 	defaultAcceptDeadlineSeconds = 3
 	defaultConnDeadlineSeconds   = 3
+	defaultConnHeartBeatSeconds  = 30
 	defaultConnWaitSeconds       = 60
 	defaultDialRetries           = 10
 )
@@ -33,11 +34,8 @@ var (
 var (
 	acceptDeadline = time.Second + defaultAcceptDeadlineSeconds
 	connDeadline   = time.Second * defaultConnDeadlineSeconds
+	connHeartbeat  = time.Second * defaultConnHeartBeatSeconds
 )
-
-type timeoutError interface {
-	Timeout() bool
-}
 
 // SocketClientOption sets an optional parameter on the SocketClient.
 type SocketClientOption func(*SocketClient)
@@ -54,6 +52,12 @@ func SocketClientConnDeadline(deadline time.Duration) SocketClientOption {
 	return func(sc *SocketClient) { sc.connDeadline = deadline }
 }
 
+// SocketClientHeartbeat sets the period on which to check the liveness of the
+// connected Signer connections.
+func SocketClientHeartbeat(period time.Duration) SocketClientOption {
+	return func(sc *SocketClient) { sc.connHeartbeat = period }
+}
+
 // SocketClientConnWait sets the timeout duration before connection of external
 // signing processes are considered to be unsuccessful.
 func SocketClientConnWait(timeout time.Duration) SocketClientOption {
@@ -68,6 +72,7 @@ type SocketClient struct {
 	addr            string
 	acceptDeadline  time.Duration
 	connDeadline    time.Duration
+	connHeartbeat   time.Duration
 	connWaitTimeout time.Duration
 	privKey         crypto.PrivKeyEd25519
 
@@ -88,6 +93,7 @@ func NewSocketClient(
 		addr:            socketAddr,
 		acceptDeadline:  acceptDeadline,
 		connDeadline:    connDeadline,
+		connHeartbeat:   connHeartbeat,
 		connWaitTimeout: time.Second * defaultConnWaitSeconds,
 		privKey:         privKey,
 	}
@@ -95,55 +101,6 @@ func NewSocketClient(
 	sc.BaseService = *cmn.NewBaseService(logger, "SocketClient", sc)
 
 	return sc
-}
-
-// OnStart implements cmn.Service.
-func (sc *SocketClient) OnStart() error {
-	if err := sc.listen(); err != nil {
-		sc.Logger.Error(
-			"OnStart",
-			"err", errors.Wrap(err, "failed to listen"),
-		)
-
-		return err
-	}
-
-	conn, err := sc.waitConnection()
-	if err != nil {
-		sc.Logger.Error(
-			"OnStart",
-			"err", errors.Wrap(err, "failed to accept connection"),
-		)
-
-		return err
-	}
-
-	sc.conn = conn
-
-	return nil
-}
-
-// OnStop implements cmn.Service.
-func (sc *SocketClient) OnStop() {
-	sc.BaseService.OnStop()
-
-	if sc.conn != nil {
-		if err := sc.conn.Close(); err != nil {
-			sc.Logger.Error(
-				"OnStop",
-				"err", errors.Wrap(err, "failed to close connection"),
-			)
-		}
-	}
-
-	if sc.listener != nil {
-		if err := sc.listener.Close(); err != nil {
-			sc.Logger.Error(
-				"OnStop",
-				"err", errors.Wrap(err, "failed to close listener"),
-			)
-		}
-	}
 }
 
 // GetAddress implements PrivValidator.
@@ -250,14 +207,56 @@ func (sc *SocketClient) SignHeartbeat(
 	return nil
 }
 
-func (sc *SocketClient) acceptConnection() (net.Conn, error) {
-	deadline := time.Now().Add(sc.acceptDeadline)
+// OnStart implements cmn.Service.
+func (sc *SocketClient) OnStart() error {
+	if err := sc.listen(); err != nil {
+		sc.Logger.Error(
+			"OnStart",
+			"err", errors.Wrap(err, "failed to listen"),
+		)
 
-	err := sc.listener.(*net.TCPListener).SetDeadline(deadline)
-	if err != nil {
-		return nil, err
+		return err
 	}
 
+	conn, err := sc.waitConnection()
+	if err != nil {
+		sc.Logger.Error(
+			"OnStart",
+			"err", errors.Wrap(err, "failed to accept connection"),
+		)
+
+		return err
+	}
+
+	sc.conn = conn
+
+	return nil
+}
+
+// OnStop implements cmn.Service.
+func (sc *SocketClient) OnStop() {
+	sc.BaseService.OnStop()
+
+	if sc.conn != nil {
+		if err := sc.conn.Close(); err != nil {
+			sc.Logger.Error(
+				"OnStop",
+				"err", errors.Wrap(err, "failed to close connection"),
+			)
+		}
+	}
+
+	if sc.listener != nil {
+		if err := sc.listener.Close(); err != nil {
+			sc.Logger.Error(
+				"OnStop",
+				"err", errors.Wrap(err, "failed to close listener"),
+			)
+		}
+	}
+}
+
+func (sc *SocketClient) acceptConnection() (net.Conn, error) {
 	conn, err := sc.listener.Accept()
 	if err != nil {
 		if !sc.IsRunning() {
@@ -265,10 +264,6 @@ func (sc *SocketClient) acceptConnection() (net.Conn, error) {
 		}
 		return nil, err
 
-	}
-
-	if err := conn.SetDeadline(time.Now().Add(sc.connDeadline)); err != nil {
-		return nil, err
 	}
 
 	conn, err = p2pconn.MakeSecretConnection(conn, sc.privKey.Wrap())
@@ -285,7 +280,12 @@ func (sc *SocketClient) listen() error {
 		return err
 	}
 
-	sc.listener = ln
+	sc.listener = newTCPTimeoutListener(
+		ln,
+		sc.acceptDeadline,
+		sc.connDeadline,
+		sc.connHeartbeat,
+	)
 
 	return nil
 }
