@@ -1,7 +1,6 @@
 package types
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"time"
@@ -14,7 +13,7 @@ import (
 var (
 	ErrVoteUnexpectedStep            = errors.New("Unexpected step")
 	ErrVoteInvalidValidatorIndex     = errors.New("Invalid validator index")
-	ErrVoteInvalidValidatorAddress   = errors.New("Invalid validator address")
+	ErrVoteOverweight                = errors.New("Overweight multiplicity")
 	ErrVoteInvalidSignature          = errors.New("Invalid signature")
 	ErrVoteInvalidBlockHash          = errors.New("Invalid block hash")
 	ErrVoteNonDeterministicSignature = errors.New("Non-deterministic signature")
@@ -22,21 +21,28 @@ var (
 )
 
 type ErrVoteConflictingVotes struct {
-	*DuplicateVoteEvidence
+	dups []*DuplicateVoteEvidence
 }
 
 func (err *ErrVoteConflictingVotes) Error() string {
-	return fmt.Sprintf("Conflicting votes from validator %v", err.PubKey.Address())
+	addrs := make([]Address, len(err.dups))
+	for i, d := range err.dups {
+		addrs[i] = d.PubKeys[d.DuplicateIndex].Address()
+	}
+	return fmt.Sprintf("Conflicting votes from validators %v", addrs)
 }
 
-func NewConflictingVoteError(val *Validator, voteA, voteB *Vote) *ErrVoteConflictingVotes {
-	return &ErrVoteConflictingVotes{
-		&DuplicateVoteEvidence{
-			PubKey: val.PubKey,
-			VoteA:  voteA,
-			VoteB:  voteB,
-		},
+func NewConflictingVoteError(pubKeys []crypto.AggregatablePubKey, duplicateIndices []int, conflicts []*Vote, voteB *Vote) *ErrVoteConflictingVotes {
+	dups := make([]*DuplicateVoteEvidence, len(conflicts))
+	for i := 0; i < len(conflicts); i++ {
+		dups[i] = &DuplicateVoteEvidence{
+			PubKeys:        pubKeys,
+			DuplicateIndex: duplicateIndices[i],
+			VoteA:          conflicts[i],
+			VoteB:          voteB,
+		}
 	}
+	return &ErrVoteConflictingVotes{dups}
 }
 
 // Types of votes
@@ -62,14 +68,13 @@ type Address = cmn.HexBytes
 
 // Represents a prevote, precommit, or commit vote from validators for consensus.
 type Vote struct {
-	ValidatorAddress Address          `json:"validator_address"`
-	ValidatorIndex   int              `json:"validator_index"`
-	Height           int64            `json:"height"`
-	Round            int              `json:"round"`
-	Timestamp        time.Time        `json:"timestamp"`
-	Type             byte             `json:"type"`
-	BlockID          BlockID          `json:"block_id"` // zero if vote is nil.
-	Signature        crypto.Signature `json:"signature"`
+	ValidatorIndex []int64                      `json:"validator_index"`
+	Height         int64                        `json:"height"`
+	Round          int                          `json:"round"`
+	Timestamp      time.Time                    `json:"timestamp"`
+	Type           byte                         `json:"type"`
+	BlockID        BlockID                      `json:"block_id"` // zero if vote is nil.
+	Signature      crypto.AggregatableSignature `json:"signature"`
 }
 
 func (vote *Vote) SignBytes(chainID string) []byte {
@@ -102,19 +107,15 @@ func (vote *Vote) String() string {
 		cmn.PanicSanity("Unknown vote type")
 	}
 
-	return fmt.Sprintf("Vote{%v:%X %v/%02d/%v(%v) %X %v @ %s}",
-		vote.ValidatorIndex, cmn.Fingerprint(vote.ValidatorAddress),
+	return fmt.Sprintf("Vote{%v %v/%02d/%v(%v) %X %v}",
+		vote.ValidatorIndex,
 		vote.Height, vote.Round, vote.Type, typeString,
 		cmn.Fingerprint(vote.BlockID.Hash), vote.Signature,
-		CanonicalTime(vote.Timestamp))
+	)
 }
 
-func (vote *Vote) Verify(chainID string, pubKey crypto.PubKey) error {
-	if !bytes.Equal(pubKey.Address(), vote.ValidatorAddress) {
-		return ErrVoteInvalidValidatorAddress
-	}
-
-	if !pubKey.VerifyBytes(vote.SignBytes(chainID), vote.Signature) {
+func (vote *Vote) Verify(chainID string, pubKeys []crypto.AggregatablePubKey) error {
+	if !pubKeys[0].VerifyMultiSignatureWithMultiplicity(vote.SignBytes(chainID), pubKeys, vote.ValidatorIndex, vote.Signature) {
 		return ErrVoteInvalidSignature
 	}
 	return nil

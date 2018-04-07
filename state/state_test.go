@@ -289,7 +289,7 @@ func TestManyValidatorChangesSaveLoad(t *testing.T) {
 func genValSet(size int) *types.ValidatorSet {
 	vals := make([]*types.Validator, size)
 	for i := 0; i < size; i++ {
-		vals[i] = types.NewValidator(crypto.GenPrivKeyEd25519().PubKey(), 10)
+		vals[i] = types.NewValidator(crypto.GenPrivKeyAltbn128().PubKey(), 10)
 	}
 	return types.NewValidatorSet(vals)
 }

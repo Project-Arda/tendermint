@@ -34,7 +34,7 @@ func BenchmarkValidatorSetCopy(b *testing.B) {
 	b.StopTimer()
 	vset := NewValidatorSet([]*Validator{})
 	for i := 0; i < 1000; i++ {
-		privKey := crypto.GenPrivKeyEd25519()
+		privKey := crypto.GenPrivKeyAltbn128()
 		pubKey := privKey.PubKey()
 		val := NewValidator(pubKey, 0)
 		if !vset.Add(val) {
@@ -195,10 +195,11 @@ func newValidator(address []byte, power int64) *Validator {
 	return &Validator{Address: address, VotingPower: power}
 }
 
-func randPubKey() crypto.PubKey {
-	var pubKey [32]byte
-	copy(pubKey[:], cmn.RandBytes(32))
-	return crypto.PubKeyEd25519(pubKey).Wrap()
+func randPubKey() crypto.AggregatablePubKey {
+	//var pubKey [32]byte
+	//copy(pubKey[:], cmn.RandBytes(32))
+	//return crypto.PubKeyEd25519(pubKey).Wrap()
+	return crypto.GenPrivKeyAltbn128().PubKey()
 }
 
 func randValidator_() *Validator {
@@ -315,7 +316,7 @@ func TestSafeSubClip(t *testing.T) {
 //-------------------------------------------------------------------
 
 func TestValidatorSetVerifyCommit(t *testing.T) {
-	privKey := crypto.GenPrivKeyEd25519()
+	privKey := crypto.GenPrivKeyAltbn128()
 	pubKey := privKey.PubKey()
 	v1 := NewValidator(pubKey, 1000)
 	vset := NewValidatorSet([]*Validator{v1})
@@ -323,19 +324,21 @@ func TestValidatorSetVerifyCommit(t *testing.T) {
 	chainID := "mychainID"
 	blockID := BlockID{Hash: []byte("hello")}
 	height := int64(5)
+	vi := make([]int64, 1)
+	vi[0] = 0
 	vote := &Vote{
-		ValidatorAddress: v1.Address,
-		ValidatorIndex:   0,
-		Height:           height,
-		Round:            0,
-		Timestamp:        time.Now().UTC(),
-		Type:             VoteTypePrecommit,
-		BlockID:          blockID,
+		//ValidatorAddress: v1.Address,
+		ValidatorIndex: vi,
+		Height:         height,
+		Round:          0,
+		Timestamp:      time.Now().UTC(),
+		Type:           VoteTypePrecommit,
+		BlockID:        blockID,
 	}
 	vote.Signature = privKey.Sign(vote.SignBytes(chainID))
 	commit := &Commit{
 		BlockID:    blockID,
-		Precommits: []*Vote{vote},
+		Precommits: vote,
 	}
 
 	badChainID := "notmychainID"
@@ -343,7 +346,7 @@ func TestValidatorSetVerifyCommit(t *testing.T) {
 	badHeight := height + 1
 	badCommit := &Commit{
 		BlockID:    blockID,
-		Precommits: []*Vote{nil},
+		Precommits: nil,
 	}
 
 	// test some error cases

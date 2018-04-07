@@ -274,7 +274,7 @@ func shareAuthSignature(sc *SecretConnection, pubKey crypto.PubKey, signature cr
 
 	cmn.Parallel(
 		func() {
-			msgBytes := wire.BinaryBytes(authSigMessage{pubKey.Wrap(), signature.Wrap()})
+			msgBytes := wire.BinaryBytes(authSigMessage{pubKey, signature})
 			_, err1 = sc.Write(msgBytes)
 		},
 		func() {

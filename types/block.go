@@ -244,48 +244,28 @@ type Commit struct {
 	// Any peer with a block can gossip precommits by index with a peer without recalculating the
 	// active ValidatorSet.
 	BlockID    BlockID `json:"blockID"`
-	Precommits []*Vote `json:"precommits"`
+	Precommits *Vote   `json:"precommits"`
 
 	// Volatile
-	firstPrecommit *Vote
-	hash           cmn.HexBytes
-	bitArray       *cmn.BitArray
-}
-
-// FirstPrecommit returns the first non-nil precommit in the commit.
-// If all precommits are nil, it returns an empty precommit with height 0.
-func (commit *Commit) FirstPrecommit() *Vote {
-	if len(commit.Precommits) == 0 {
-		return nil
-	}
-	if commit.firstPrecommit != nil {
-		return commit.firstPrecommit
-	}
-	for _, precommit := range commit.Precommits {
-		if precommit != nil {
-			commit.firstPrecommit = precommit
-			return precommit
-		}
-	}
-	return &Vote{
-		Type: VoteTypePrecommit,
-	}
+	//firstPrecommit *Vote
+	hash     cmn.HexBytes
+	bitArray *cmn.BitArray
 }
 
 // Height returns the height of the commit
 func (commit *Commit) Height() int64 {
-	if len(commit.Precommits) == 0 {
+	if commit.Precommits == nil {
 		return 0
 	}
-	return commit.FirstPrecommit().Height
+	return commit.Precommits.Height
 }
 
 // Round returns the round of the commit
 func (commit *Commit) Round() int {
-	if len(commit.Precommits) == 0 {
+	if commit.Precommits == nil {
 		return 0
 	}
-	return commit.FirstPrecommit().Round
+	return commit.Precommits.Round
 }
 
 // Type returns the vote type of the commit, which is always VoteTypePrecommit
@@ -294,34 +274,36 @@ func (commit *Commit) Type() byte {
 }
 
 // Size returns the number of votes in the commit
-func (commit *Commit) Size() int {
-	if commit == nil {
-		return 0
-	}
-	return len(commit.Precommits)
-}
+//FIXME
+// func (commit *Commit) Size() int {
+// 	if commit == nil {
+// 		return 0
+// 	}
+// 	return len(commit.Precommits)
+// }
 
 // BitArray returns a BitArray of which validators voted in this commit
 func (commit *Commit) BitArray() *cmn.BitArray {
 	if commit.bitArray == nil {
-		commit.bitArray = cmn.NewBitArray(len(commit.Precommits))
-		for i, precommit := range commit.Precommits {
+		commit.bitArray = cmn.NewBitArray(len(commit.Precommits.ValidatorIndex))
+		for i, m := range commit.Precommits.ValidatorIndex {
 			// TODO: need to check the BlockID otherwise we could be counting conflicts,
 			// not just the one with +2/3 !
-			commit.bitArray.SetIndex(i, precommit != nil)
+			commit.bitArray.SetIndex(i, m != 0)
 		}
 	}
 	return commit.bitArray
 }
 
 // GetByIndex returns the vote corresponding to a given validator index
-func (commit *Commit) GetByIndex(index int) *Vote {
-	return commit.Precommits[index]
-}
+//FIXME
+// func (commit *Commit) GetByIndex(index int) *Vote {
+// 	return commit.Precommits[index]
+// }
 
 // IsCommit returns true if there is at least one vote
 func (commit *Commit) IsCommit() bool {
-	return len(commit.Precommits) != 0
+	return commit.Precommits != nil
 }
 
 // ValidateBasic performs basic validation that doesn't involve state data.
@@ -329,44 +311,22 @@ func (commit *Commit) ValidateBasic() error {
 	if commit.BlockID.IsZero() {
 		return errors.New("Commit cannot be for nil block")
 	}
-	if len(commit.Precommits) == 0 {
+	if commit.Precommits == nil {
 		return errors.New("No precommits in commit")
 	}
-	height, round := commit.Height(), commit.Round()
 
-	// validate the precommits
-	for _, precommit := range commit.Precommits {
-		// It's OK for precommits to be missing.
-		if precommit == nil {
-			continue
-		}
-		// Ensure that all votes are precommits
-		if precommit.Type != VoteTypePrecommit {
-			return fmt.Errorf("Invalid commit vote. Expected precommit, got %v",
-				precommit.Type)
-		}
-		// Ensure that all heights are the same
-		if precommit.Height != height {
-			return fmt.Errorf("Invalid commit precommit height. Expected %v, got %v",
-				height, precommit.Height)
-		}
-		// Ensure that all rounds are the same
-		if precommit.Round != round {
-			return fmt.Errorf("Invalid commit precommit round. Expected %v, got %v",
-				round, precommit.Round)
-		}
+	if commit.Precommits.Type != VoteTypePrecommit {
+		return fmt.Errorf("Invalid commit vote. Expected precommit, got %v",
+			commit.Precommits.Type)
 	}
 	return nil
 }
 
 // Hash returns the hash of the commit
+//FIXME this is a hack
 func (commit *Commit) Hash() cmn.HexBytes {
 	if commit.hash == nil {
-		bs := make([]merkle.Hasher, len(commit.Precommits))
-		for i, precommit := range commit.Precommits {
-			bs[i] = wireHasher(precommit)
-		}
-		commit.hash = merkle.SimpleHashFromHashers(bs)
+		commit.hash = wireHasher(commit.Precommits).Hash()
 	}
 	return commit.hash
 }
@@ -376,9 +336,9 @@ func (commit *Commit) StringIndented(indent string) string {
 	if commit == nil {
 		return "nil-Commit"
 	}
-	precommitStrings := make([]string, len(commit.Precommits))
-	for i, precommit := range commit.Precommits {
-		precommitStrings[i] = precommit.String()
+	precommitStrings := make([]string, len(commit.Precommits.ValidatorIndex))
+	for i, m := range commit.Precommits.ValidatorIndex {
+		precommitStrings[i] = string(m)
 	}
 	return fmt.Sprintf(`Commit{
 %s  BlockID:    %v

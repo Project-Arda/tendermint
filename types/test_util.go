@@ -8,15 +8,15 @@ func MakeCommit(blockID BlockID, height int64, round int,
 
 	// all sign
 	for i := 0; i < len(validators); i++ {
-
+		var idx = make([]int64, len(validators))
+		idx[i] = 1
 		vote := &Vote{
-			ValidatorAddress: validators[i].GetAddress(),
-			ValidatorIndex:   i,
-			Height:           height,
-			Round:            round,
-			Type:             VoteTypePrecommit,
-			BlockID:          blockID,
-			Timestamp:        time.Now().UTC(),
+			ValidatorIndex: idx,
+			Height:         height,
+			Round:          round,
+			Timestamp:      time.Now().UTC(),
+			Type:           VoteTypePrecommit,
+			BlockID:        blockID,
 		}
 
 		_, err := signAddVote(validators[i], vote, voteSet)

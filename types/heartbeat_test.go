@@ -27,7 +27,7 @@ func TestHeartbeatString(t *testing.T) {
 	hb := &Heartbeat{ValidatorIndex: 1, Height: 11, Round: 2}
 	require.Equal(t, hb.String(), "Heartbeat{1:000000000000 11/02 (0) {<nil>}}")
 
-	var key crypto.PrivKeyEd25519
+	var key crypto.PrivKeyAltbn128
 	hb.Signature = key.Sign([]byte("Tendermint"))
 	require.Equal(t, hb.String(), "Heartbeat{1:000000000000 11/02 (0) {/FF41E371B9BF.../}}")
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	crypto "github.com/tendermint/go-crypto"
 	cmn "github.com/tendermint/tmlibs/common"
 	"github.com/tendermint/tmlibs/merkle"
 )
@@ -126,6 +127,25 @@ func (valSet *ValidatorSet) TotalVotingPower() int64 {
 	return valSet.totalVotingPower
 }
 
+//TODO should probably be cached
+func (valSet *ValidatorSet) GetPubKeys() (PubKeys []crypto.AggregatablePubKey) {
+	pubKeys := make([]crypto.AggregatablePubKey, valSet.Size())
+	for i, v := range valSet.Validators {
+		pubKeys[i] = v.PubKey
+	}
+	return pubKeys
+}
+
+func (valSet *ValidatorSet) GetSubsetVotingPower(voters *cmn.BitArray) int64 {
+	var total int64 = 0
+	for i := 0; i < voters.Size(); i++ {
+		if voters.GetIndex(i) {
+			total += valSet.Validators[i].VotingPower
+		}
+	}
+	return total
+}
+
 func (valSet *ValidatorSet) GetProposer() (proposer *Validator) {
 	if len(valSet.Validators) == 0 {
 		return nil
@@ -227,45 +247,35 @@ func (valSet *ValidatorSet) Iterate(fn func(index int, val *Validator) bool) {
 
 // Verify that +2/3 of the set had signed the given signBytes
 func (valSet *ValidatorSet) VerifyCommit(chainID string, blockID BlockID, height int64, commit *Commit) error {
-	if valSet.Size() != len(commit.Precommits) {
-		return fmt.Errorf("Invalid commit -- wrong set size: %v vs %v", valSet.Size(), len(commit.Precommits))
+	if valSet.Size() != len(commit.Precommits.ValidatorIndex) {
+		return fmt.Errorf("Invalid commit -- wrong set size: %v vs %v", valSet.Size(), len(commit.Precommits.ValidatorIndex))
 	}
 	if height != commit.Height() {
 		return fmt.Errorf("Invalid commit -- wrong height: %v vs %v", height, commit.Height())
 	}
 
 	talliedVotingPower := int64(0)
-	round := commit.Round()
+	//round := commit.Round()
 
-	for idx, precommit := range commit.Precommits {
-		// may be nil if validator skipped.
-		if precommit == nil {
-			continue
+	if commit.Precommits.Type != VoteTypePrecommit {
+		return fmt.Errorf("Invalid commit -- not precommit")
+	}
+
+	//TODO extra check?
+	if !commit.Precommits.BlockID.Equals(blockID) {
+		return fmt.Errorf("Invalid commit -- wrong blockID %s", blockID.String())
+	}
+
+	for idx, multi := range commit.Precommits.ValidatorIndex {
+		if multi != 0 {
+			_, val := valSet.GetByIndex(idx)
+			talliedVotingPower += val.VotingPower
 		}
-		if precommit.Height != height {
-			return fmt.Errorf("Invalid commit -- wrong height: %v vs %v", height, precommit.Height)
-		}
-		if precommit.Round != round {
-			return fmt.Errorf("Invalid commit -- wrong round: %v vs %v", round, precommit.Round)
-		}
-		if precommit.Type != VoteTypePrecommit {
-			return fmt.Errorf("Invalid commit -- not precommit @ index %v", idx)
-		}
-		_, val := valSet.GetByIndex(idx)
-		// Validate signature
-		precommitSignBytes := precommit.SignBytes(chainID)
-		if !val.PubKey.VerifyBytes(precommitSignBytes, precommit.Signature) {
-			return fmt.Errorf("Invalid commit -- invalid signature: %v", precommit)
-		}
-		if !blockID.Equals(precommit.BlockID) {
-			continue // Not an error, but doesn't count
-		}
-		// Good precommit!
-		talliedVotingPower += val.VotingPower
 	}
 
 	if talliedVotingPower > valSet.TotalVotingPower()*2/3 {
-		return nil
+		//only check signature if it's worth it
+		return commit.Precommits.Verify(chainID, valSet.GetPubKeys())
 	} else {
 		return fmt.Errorf("Invalid commit -- insufficient voting power: got %v, needed %v",
 			talliedVotingPower, (valSet.TotalVotingPower()*2/3 + 1))
@@ -288,56 +298,22 @@ func (valSet *ValidatorSet) VerifyCommit(chainID string, blockID BlockID, height
 func (valSet *ValidatorSet) VerifyCommitAny(newSet *ValidatorSet, chainID string,
 	blockID BlockID, height int64, commit *Commit) error {
 
-	if newSet.Size() != len(commit.Precommits) {
-		return errors.Errorf("Invalid commit -- wrong set size: %v vs %v", newSet.Size(), len(commit.Precommits))
+	if newSet.Size() != len(commit.Precommits.ValidatorIndex) {
+		return errors.Errorf("Invalid commit -- wrong set size: %v vs %v", newSet.Size(), len(commit.Precommits.ValidatorIndex))
 	}
 	if height != commit.Height() {
 		return errors.Errorf("Invalid commit -- wrong height: %v vs %v", height, commit.Height())
 	}
+	//FIXME also check type / blockID
 
 	oldVotingPower := int64(0)
 	newVotingPower := int64(0)
-	seen := map[int]bool{}
-	round := commit.Round()
 
-	for idx, precommit := range commit.Precommits {
-		// first check as in VerifyCommit
-		if precommit == nil {
-			continue
-		}
-		if precommit.Height != height {
-			// return certerr.ErrHeightMismatch(height, precommit.Height)
-			return errors.Errorf("Blocks don't match - %d vs %d", round, precommit.Round)
-		}
-		if precommit.Round != round {
-			return errors.Errorf("Invalid commit -- wrong round: %v vs %v", round, precommit.Round)
-		}
-		if precommit.Type != VoteTypePrecommit {
-			return errors.Errorf("Invalid commit -- not precommit @ index %v", idx)
-		}
-		if !blockID.Equals(precommit.BlockID) {
-			continue // Not an error, but doesn't count
-		}
-
-		// we only grab by address, ignoring unknown validators
-		vi, ov := valSet.GetByAddress(precommit.ValidatorAddress)
-		if ov == nil || seen[vi] {
-			continue // missing or double vote...
-		}
-		seen[vi] = true
-
-		// Validate signature old school
-		precommitSignBytes := precommit.SignBytes(chainID)
-		if !ov.PubKey.VerifyBytes(precommitSignBytes, precommit.Signature) {
-			return errors.Errorf("Invalid commit -- invalid signature: %v", precommit)
-		}
-		// Good precommit!
-		oldVotingPower += ov.VotingPower
-
-		// check new school
-		_, cv := newSet.GetByIndex(idx)
-		if cv.PubKey.Equals(ov.PubKey) {
-			// make sure this is properly set in the current block as well
+	for idx, multi := range commit.Precommits.ValidatorIndex {
+		if multi != 0 {
+			_, cv := newSet.GetByIndex(idx)
+			_, ov := valSet.GetByAddress(cv.Address)
+			oldVotingPower += ov.VotingPower
 			newVotingPower += cv.VotingPower
 		}
 	}
@@ -349,7 +325,8 @@ func (valSet *ValidatorSet) VerifyCommitAny(newSet *ValidatorSet, chainID string
 		return errors.Errorf("Invalid commit -- insufficient cur voting power: got %v, needed %v",
 			newVotingPower, (newSet.TotalVotingPower()*2/3 + 1))
 	}
-	return nil
+
+	return commit.Precommits.Verify(chainID, newSet.GetPubKeys())
 }
 
 func (valSet *ValidatorSet) String() string {

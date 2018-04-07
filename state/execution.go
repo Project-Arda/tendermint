@@ -188,8 +188,8 @@ func execBlockOnProxyApp(logger log.Logger, proxyAppConn proxy.AppConnConsensus,
 
 	// determine which validators did not sign last block
 	absentVals := make([]int32, 0)
-	for valI, vote := range block.LastCommit.Precommits {
-		if vote == nil {
+	for valI, m := range block.LastCommit.Precommits.ValidatorIndex {
+		if m == 0 {
 			absentVals = append(absentVals, int32(valI))
 		}
 	}
@@ -245,9 +245,10 @@ func execBlockOnProxyApp(logger log.Logger, proxyAppConn proxy.AppConnConsensus,
 // ./lite/doc.go for details on how a light client tracks validators.
 func updateValidators(currentSet *types.ValidatorSet, updates []abci.Validator) error {
 	for _, v := range updates {
-		pubkey, err := crypto.PubKeyFromBytes(v.PubKey) // NOTE: expects go-wire encoded pubkey
-		if err != nil {
-			return err
+		pubkey, ok := crypto.NewPubKeyAltbn128FromBytes(v.PubKey)
+		//pubkey, err := crypto.PubKeyFromBytes(v.PubKey) // NOTE: expects go-wire encoded pubkey
+		if !ok {
+			return fmt.Errorf("Bad Pubkey: %s", v.String())
 		}
 
 		address := pubkey.Address()

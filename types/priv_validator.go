@@ -38,15 +38,15 @@ func voteToStep(vote *Vote) int8 {
 
 // ValidatorID contains the identity of the validator.
 type ValidatorID struct {
-	Address cmn.HexBytes  `json:"address"`
-	PubKey  crypto.PubKey `json:"pub_key"`
+	Address cmn.HexBytes              `json:"address"`
+	PubKey  crypto.AggregatablePubKey `json:"pub_key"`
 }
 
 // PrivValidator defines the functionality of a local Tendermint validator
 // that signs votes, proposals, and heartbeats, and never double signs.
 type PrivValidator2 interface {
 	Address() (Address, error) // redundant since .PubKey().Address()
-	PubKey() (crypto.PubKey, error)
+	PubKey() (crypto.AggregatablePubKey, error)
 
 	SignVote(chainID string, vote *Vote) error
 	SignProposal(chainID string, proposal *Proposal) error
@@ -55,29 +55,29 @@ type PrivValidator2 interface {
 
 type TestSigner interface {
 	Address() cmn.HexBytes
-	PubKey() crypto.PubKey
-	Sign([]byte) (crypto.Signature, error)
+	PubKey() crypto.AggregatablePubKey
+	Sign([]byte) (crypto.AggregatableSignature, error)
 }
 
 func GenSigner() TestSigner {
 	return &DefaultTestSigner{
-		crypto.GenPrivKeyEd25519().Wrap(),
+		crypto.GenPrivKeyAltbn128(),
 	}
 }
 
 type DefaultTestSigner struct {
-	crypto.PrivKey
+	PrivKey crypto.AggregatablePrivKey
 }
 
 func (ds *DefaultTestSigner) Address() cmn.HexBytes {
 	return ds.PubKey().Address()
 }
 
-func (ds *DefaultTestSigner) PubKey() crypto.PubKey {
+func (ds *DefaultTestSigner) PubKey() crypto.AggregatablePubKey {
 	return ds.PrivKey.PubKey()
 }
 
-func (ds *DefaultTestSigner) Sign(msg []byte) (crypto.Signature, error) {
+func (ds *DefaultTestSigner) Sign(msg []byte) (crypto.AggregatableSignature, error) {
 	return ds.PrivKey.Sign(msg), nil
 }
 
@@ -87,8 +87,8 @@ func (ds *DefaultTestSigner) Sign(msg []byte) (crypto.Signature, error) {
 // PrivValidator defines the functionality of a local Tendermint validator
 // that signs votes, proposals, and heartbeats, and never double signs.
 type PrivValidator interface {
-	GetAddress() Address // redundant since .PubKey().Address()
-	GetPubKey() crypto.PubKey
+	GetAddress() Address                  // redundant since .PubKey().Address()
+	GetPubKey() crypto.AggregatablePubKey //crypto.PubKey
 
 	SignVote(chainID string, vote *Vote) error
 	SignProposal(chainID string, proposal *Proposal) error
@@ -100,16 +100,16 @@ type PrivValidator interface {
 // something besides the default, for instance a hardware signer.
 // NOTE: the directory containing the privVal.filePath must already exist.
 type PrivValidatorFS struct {
-	Address       Address          `json:"address"`
-	PubKey        crypto.PubKey    `json:"pub_key"`
-	LastHeight    int64            `json:"last_height"`
-	LastRound     int              `json:"last_round"`
-	LastStep      int8             `json:"last_step"`
-	LastSignature crypto.Signature `json:"last_signature,omitempty"` // so we dont lose signatures
-	LastSignBytes cmn.HexBytes     `json:"last_signbytes,omitempty"` // so we dont lose signatures
+	Address       Address                      `json:"address"`
+	PubKey        crypto.AggregatablePubKey    `json:"pub_key"`
+	LastHeight    int64                        `json:"last_height"`
+	LastRound     int                          `json:"last_round"`
+	LastStep      int8                         `json:"last_step"`
+	LastSignature crypto.AggregatableSignature `json:"last_signature,omitempty"` // so we dont lose signatures
+	LastSignBytes cmn.HexBytes                 `json:"last_signbytes,omitempty"` // so we dont lose signatures
 
 	// PrivKey should be empty if a Signer other than the default is being used.
-	PrivKey crypto.PrivKey `json:"priv_key"`
+	PrivKey crypto.AggregatablePrivKey `json:"priv_key"`
 	Signer  `json:"-"`
 
 	// For persistence.
@@ -123,24 +123,24 @@ type PrivValidatorFS struct {
 // eg. to avoid double signing.
 // Currently, the only callers are SignVote, SignProposal, and SignHeartbeat.
 type Signer interface {
-	Sign(msg []byte) (crypto.Signature, error)
+	Sign(msg []byte) (crypto.AggregatableSignature, error)
 }
 
 // DefaultSigner implements Signer.
 // It uses a standard, unencrypted crypto.PrivKey.
 type DefaultSigner struct {
-	PrivKey crypto.PrivKey `json:"priv_key"`
+	PrivKey crypto.AggregatablePrivKey `json:"priv_key"`
 }
 
 // NewDefaultSigner returns an instance of DefaultSigner.
-func NewDefaultSigner(priv crypto.PrivKey) *DefaultSigner {
+func NewDefaultSigner(priv crypto.AggregatablePrivKey) *DefaultSigner {
 	return &DefaultSigner{
 		PrivKey: priv,
 	}
 }
 
 // Sign implements Signer. It signs the byte slice with a private key.
-func (ds *DefaultSigner) Sign(msg []byte) (crypto.Signature, error) {
+func (ds *DefaultSigner) Sign(msg []byte) (crypto.AggregatableSignature, error) {
 	return ds.PrivKey.Sign(msg), nil
 }
 
@@ -152,14 +152,14 @@ func (pv *PrivValidatorFS) GetAddress() Address {
 
 // GetPubKey returns the public key of the validator.
 // Implements PrivValidator.
-func (pv *PrivValidatorFS) GetPubKey() crypto.PubKey {
+func (pv *PrivValidatorFS) GetPubKey() crypto.AggregatablePubKey {
 	return pv.PubKey
 }
 
 // GenPrivValidatorFS generates a new validator with randomly generated private key
 // and sets the filePath, but does not call Save().
 func GenPrivValidatorFS(filePath string) *PrivValidatorFS {
-	privKey := crypto.GenPrivKeyEd25519().Wrap()
+	privKey := crypto.GenPrivKeyAltbn128()
 	return &PrivValidatorFS{
 		Address:  privKey.PubKey().Address(),
 		PubKey:   privKey.PubKey(),
@@ -235,7 +235,7 @@ func (privVal *PrivValidatorFS) save() {
 // Reset resets all fields in the PrivValidatorFS.
 // NOTE: Unsafe!
 func (privVal *PrivValidatorFS) Reset() {
-	var sig crypto.Signature
+	var sig crypto.AggregatableSignature
 	privVal.LastHeight = 0
 	privVal.LastRound = 0
 	privVal.LastStep = 0
@@ -282,7 +282,7 @@ func (privVal *PrivValidatorFS) checkHRS(height int64, round int, step int8) (bo
 				return false, errors.New("Step regression")
 			} else if privVal.LastStep == step {
 				if privVal.LastSignBytes != nil {
-					if privVal.LastSignature.Empty() {
+					if privVal.LastSignature == nil {
 						panic("privVal: LastSignature is nil but LastSignBytes is not!")
 					}
 					return true, nil
@@ -314,9 +314,9 @@ func (privVal *PrivValidatorFS) signVote(chainID string, vote *Vote) error {
 	if sameHRS {
 		if bytes.Equal(signBytes, privVal.LastSignBytes) {
 			vote.Signature = privVal.LastSignature
-		} else if timestamp, ok := checkVotesOnlyDifferByTimestamp(privVal.LastSignBytes, signBytes); ok {
-			vote.Timestamp = timestamp
-			vote.Signature = privVal.LastSignature
+			//} else if timestamp, ok := checkVotesOnlyDifferByTimestamp(privVal.LastSignBytes, signBytes); ok {
+			//	vote.Timestamp = timestamp
+			//	vote.Signature = privVal.LastSignature
 		} else {
 			err = fmt.Errorf("Conflicting data")
 		}
@@ -374,7 +374,7 @@ func (privVal *PrivValidatorFS) signProposal(chainID string, proposal *Proposal)
 
 // Persist height/round/step and signature
 func (privVal *PrivValidatorFS) saveSigned(height int64, round int, step int8,
-	signBytes []byte, sig crypto.Signature) {
+	signBytes []byte, sig crypto.AggregatableSignature) {
 
 	privVal.LastHeight = height
 	privVal.LastRound = round
@@ -415,34 +415,6 @@ func (pvs PrivValidatorsByAddress) Swap(i, j int) {
 	it := pvs[i]
 	pvs[i] = pvs[j]
 	pvs[j] = it
-}
-
-//-------------------------------------
-
-// returns the timestamp from the lastSignBytes.
-// returns true if the only difference in the votes is their timestamp.
-func checkVotesOnlyDifferByTimestamp(lastSignBytes, newSignBytes []byte) (time.Time, bool) {
-	var lastVote, newVote CanonicalJSONOnceVote
-	if err := json.Unmarshal(lastSignBytes, &lastVote); err != nil {
-		panic(fmt.Sprintf("LastSignBytes cannot be unmarshalled into vote: %v", err))
-	}
-	if err := json.Unmarshal(newSignBytes, &newVote); err != nil {
-		panic(fmt.Sprintf("signBytes cannot be unmarshalled into vote: %v", err))
-	}
-
-	lastTime, err := time.Parse(TimeFormat, lastVote.Vote.Timestamp)
-	if err != nil {
-		panic(err)
-	}
-
-	// set the times to the same value and check equality
-	now := CanonicalTime(time.Now())
-	lastVote.Vote.Timestamp = now
-	newVote.Vote.Timestamp = now
-	lastVoteBytes, _ := json.Marshal(lastVote)
-	newVoteBytes, _ := json.Marshal(newVote)
-
-	return lastTime, bytes.Equal(newVoteBytes, lastVoteBytes)
 }
 
 // returns the timestamp from the lastSignBytes.

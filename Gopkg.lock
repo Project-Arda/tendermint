@@ -2,6 +2,15 @@
 
 
 [[projects]]
+  branch = "multiplicity"
+  name = "github.com/Project-Arda/bgls"
+  packages = [
+    "bgls",
+    "curves"
+  ]
+  revision = "909ce76315b4307b9cae27e557a67e8f59f7d4b5"
+
+[[projects]]
   branch = "master"
   name = "github.com/btcsuite/btcd"
   packages = ["btcec"]
@@ -15,9 +24,24 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/dchest/blake2b"
+  packages = ["."]
+  revision = "06006a921c7d13e3fdf63c401cb0e4529a26e6e4"
+
+[[projects]]
+  branch = "master"
   name = "github.com/ebuchman/fail-test"
   packages = ["."]
   revision = "95f809107225be108efcf10a3509e4ea6ceef3c4"
+
+[[projects]]
+  name = "github.com/ethereum/go-ethereum"
+  packages = [
+    "crypto/bn256/cloudflare",
+    "crypto/sha3"
+  ]
+  revision = "329ac18ef617d0238f71637bffe78f028b0f13f7"
+  version = "v1.8.3"
 
 [[projects]]
   name = "github.com/fortytw2/leaktest"
@@ -252,10 +276,17 @@
   revision = "d8387025d2b9d158cf4efb07e7ebf814bcce2057"
 
 [[projects]]
+  name = "github.com/tendermint/go-amino"
+  packages = ["."]
+  revision = "f55c3351f30e5987500020631f00e87a035ed415"
+  version = "0.9.3"
+
+[[projects]]
+  branch = "multiplicity"
   name = "github.com/tendermint/go-crypto"
   packages = ["."]
-  revision = "c3e19f3ea26f5c3357e0bcbb799b0761ef923755"
-  version = "v0.5.0"
+  revision = "baa8a42b5a66443b0403ae9672f6e748e5cba5f3"
+  source = "github.com/Project-Arda/go-crypto"
 
 [[projects]]
   name = "github.com/tendermint/go-wire"
@@ -290,6 +321,7 @@
   branch = "master"
   name = "golang.org/x/crypto"
   packages = [
+    "blake2b",
     "curve25519",
     "nacl/box",
     "nacl/secretbox",
@@ -297,7 +329,8 @@
     "openpgp/errors",
     "poly1305",
     "ripemd160",
-    "salsa20/salsa"
+    "salsa20/salsa",
+    "sha3"
   ]
   revision = "88942b9c40a4c9d203b82b3731787b672d6e809b"
 
@@ -319,7 +352,7 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "91ee8cde435411ca3f1cd365e8f20131aed4d0a1"
+  revision = "13d03a9a82fba647c21a0ef8fba44a795d0f0835"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -346,7 +379,7 @@
   branch = "master"
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
-  revision = "f8c8703595236ae70fdf8789ecb656ea0bcdcf46"
+  revision = "ab0870e398d5dd054b868c0db1481ab029b9a9f2"
 
 [[projects]]
   name = "google.golang.org/grpc"
@@ -375,12 +408,12 @@
 [[projects]]
   name = "gopkg.in/yaml.v2"
   packages = ["."]
-  revision = "7f97868eec74b32b0982dd158a51a446d1da7eb5"
-  version = "v2.1.1"
+  revision = "5420a8b6744d3b0345ab293f6fcba19c978f1183"
+  version = "v2.2.1"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "4dca5dbd2d280d093d7c8fc423606ab86d6ad1b241b076a7716c2093b5a09231"
+  inputs-digest = "6487cc289aec1a869b4a7e15bd1655fe4ee45132a4d5025c28b17cec8736e483"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -19,8 +19,11 @@ func randVoteSet(height int64, round int, type_ byte, numValidators int, votingP
 // Convenience: Return new vote with different validator address/index
 func withValidator(vote *Vote, addr []byte, idx int) *Vote {
 	vote = vote.Copy()
-	vote.ValidatorAddress = addr
-	vote.ValidatorIndex = idx
+	//vote.ValidatorAddress = addr
+	for i, _ := range vote.ValidatorIndex {
+		vote.ValidatorIndex[i] = 0
+	}
+	vote.ValidatorIndex[idx] = 1
 	return vote
 }
 
@@ -66,9 +69,9 @@ func TestAddVote(t *testing.T) {
 
 	// t.Logf(">> %v", voteSet)
 
-	if voteSet.GetByAddress(val0.GetAddress()) != nil {
-		t.Errorf("Expected GetByAddress(val0.Address) to be nil")
-	}
+	// if voteSet.GetByAddress(val0.GetAddress()) != nil {
+	// 	t.Errorf("Expected GetByAddress(val0.Address) to be nil")
+	// }
 	if voteSet.BitArray().GetIndex(0) {
 		t.Errorf("Expected BitArray.GetIndex(0) to be false")
 	}
@@ -76,24 +79,25 @@ func TestAddVote(t *testing.T) {
 	if ok || !blockID.IsZero() {
 		t.Errorf("There should be no 2/3 majority")
 	}
-
+	m := make([]int64, 10)
+	m[0] = 1
 	vote := &Vote{
-		ValidatorAddress: val0.GetAddress(),
-		ValidatorIndex:   0, // since privValidators are in order
-		Height:           height,
-		Round:            round,
-		Type:             VoteTypePrevote,
-		Timestamp:        time.Now().UTC(),
-		BlockID:          BlockID{nil, PartSetHeader{}},
+		//ValidatorAddress: val0.GetAddress(),
+		ValidatorIndex: m, // since privValidators are in order
+		Height:         height,
+		Round:          round,
+		Type:           VoteTypePrevote,
+		Timestamp:      time.Now().UTC(),
+		BlockID:        BlockID{nil, PartSetHeader{}},
 	}
 	_, err := signAddVote(val0, vote, voteSet)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if voteSet.GetByAddress(val0.GetAddress()) == nil {
-		t.Errorf("Expected GetByAddress(val0.Address) to be present")
-	}
+	// if voteSet.GetByAddress(val0.GetAddress()) == nil {
+	// 	t.Errorf("Expected GetByAddress(val0.Address) to be present")
+	// }
 	if !voteSet.BitArray().GetIndex(0) {
 		t.Errorf("Expected BitArray.GetIndex(0) to be true")
 	}
@@ -108,13 +112,13 @@ func Test2_3Majority(t *testing.T) {
 	voteSet, _, privValidators := randVoteSet(height, round, VoteTypePrevote, 10, 1)
 
 	voteProto := &Vote{
-		ValidatorAddress: nil, // NOTE: must fill in
-		ValidatorIndex:   -1,  // NOTE: must fill in
-		Height:           height,
-		Round:            round,
-		Type:             VoteTypePrevote,
-		Timestamp:        time.Now().UTC(),
-		BlockID:          BlockID{nil, PartSetHeader{}},
+		//ValidatorAddress: nil, // NOTE: must fill in
+		ValidatorIndex: nil, // NOTE: must fill in
+		Height:         height,
+		Round:          round,
+		Type:           VoteTypePrevote,
+		Timestamp:      time.Now().UTC(),
+		BlockID:        BlockID{nil, PartSetHeader{}},
 	}
 	// 6 out of 10 voted for nil.
 	for i := 0; i < 6; i++ {
@@ -165,13 +169,13 @@ func Test2_3MajorityRedux(t *testing.T) {
 	blockPartsHeader := PartSetHeader{blockPartsTotal, crypto.CRandBytes(32)}
 
 	voteProto := &Vote{
-		ValidatorAddress: nil, // NOTE: must fill in
-		ValidatorIndex:   -1,  // NOTE: must fill in
-		Height:           height,
-		Round:            round,
-		Timestamp:        time.Now().UTC(),
-		Type:             VoteTypePrevote,
-		BlockID:          BlockID{blockHash, blockPartsHeader},
+		//ValidatorAddress: nil, // NOTE: must fill in
+		ValidatorIndex: nil, // NOTE: must fill in
+		Height:         height,
+		Round:          round,
+		Timestamp:      time.Now().UTC(),
+		Type:           VoteTypePrevote,
+		BlockID:        BlockID{blockHash, blockPartsHeader},
 	}
 
 	// 66 out of 100 voted for nil.
@@ -260,13 +264,13 @@ func TestBadVotes(t *testing.T) {
 	voteSet, _, privValidators := randVoteSet(height, round, VoteTypePrevote, 10, 1)
 
 	voteProto := &Vote{
-		ValidatorAddress: nil,
-		ValidatorIndex:   -1,
-		Height:           height,
-		Round:            round,
-		Timestamp:        time.Now().UTC(),
-		Type:             VoteTypePrevote,
-		BlockID:          BlockID{nil, PartSetHeader{}},
+		//ValidatorAddress: nil,
+		ValidatorIndex: nil,
+		Height:         height,
+		Round:          round,
+		Timestamp:      time.Now().UTC(),
+		Type:           VoteTypePrevote,
+		BlockID:        BlockID{nil, PartSetHeader{}},
 	}
 
 	// val0 votes for nil.
@@ -322,13 +326,13 @@ func TestConflicts(t *testing.T) {
 	blockHash2 := cmn.RandBytes(32)
 
 	voteProto := &Vote{
-		ValidatorAddress: nil,
-		ValidatorIndex:   -1,
-		Height:           height,
-		Round:            round,
-		Timestamp:        time.Now().UTC(),
-		Type:             VoteTypePrevote,
-		BlockID:          BlockID{nil, PartSetHeader{}},
+		//ValidatorAddress: nil,
+		ValidatorIndex: nil,
+		Height:         height,
+		Round:          round,
+		Timestamp:      time.Now().UTC(),
+		Type:           VoteTypePrevote,
+		BlockID:        BlockID{nil, PartSetHeader{}},
 	}
 
 	// val0 votes for nil.
@@ -451,13 +455,13 @@ func TestMakeCommit(t *testing.T) {
 	blockHash, blockPartsHeader := crypto.CRandBytes(32), PartSetHeader{123, crypto.CRandBytes(32)}
 
 	voteProto := &Vote{
-		ValidatorAddress: nil,
-		ValidatorIndex:   -1,
-		Height:           height,
-		Round:            round,
-		Timestamp:        time.Now().UTC(),
-		Type:             VoteTypePrecommit,
-		BlockID:          BlockID{blockHash, blockPartsHeader},
+		//ValidatorAddress: nil,
+		ValidatorIndex: nil,
+		Height:         height,
+		Round:          round,
+		Timestamp:      time.Now().UTC(),
+		Type:           VoteTypePrecommit,
+		BlockID:        BlockID{blockHash, blockPartsHeader},
 	}
 
 	// 6 out of 10 voted for some block.
@@ -496,7 +500,7 @@ func TestMakeCommit(t *testing.T) {
 	commit := voteSet.MakeCommit()
 
 	// Commit should have 10 elements
-	if len(commit.Precommits) != 10 {
+	if len(commit.Precommits.ValidatorIndex) != 10 {
 		t.Errorf("Commit Precommits should have the same number of precommits as validators")
 	}
 

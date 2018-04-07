@@ -103,7 +103,7 @@ func TestSignVote(t *testing.T) {
 	voteType := VoteTypePrevote
 
 	// sign a vote for first time
-	vote := newVote(privVal.Address, 0, height, round, voteType, block1)
+	vote := newVote(privVal.Address, 0, 1, height, round, voteType, block1)
 	err := privVal.SignVote("mychainid", vote)
 	assert.NoError(err, "expected no error signing vote")
 
@@ -113,10 +113,10 @@ func TestSignVote(t *testing.T) {
 
 	// now try some bad votes
 	cases := []*Vote{
-		newVote(privVal.Address, 0, height, round-1, voteType, block1),   // round regression
-		newVote(privVal.Address, 0, height-1, round, voteType, block1),   // height regression
-		newVote(privVal.Address, 0, height-2, round+4, voteType, block1), // height regression and different round
-		newVote(privVal.Address, 0, height, round, voteType, block2),     // different block
+		newVote(privVal.Address, 0, 1, height, round-1, voteType, block1),   // round regression
+		newVote(privVal.Address, 0, 1, height-1, round, voteType, block1),   // height regression
+		newVote(privVal.Address, 0, 1, height-2, round+4, voteType, block1), // height regression and different round
+		newVote(privVal.Address, 0, 1, height, round, voteType, block2),     // different block
 	}
 
 	for _, c := range cases {
@@ -191,7 +191,7 @@ func TestDifferByTimestamp(t *testing.T) {
 
 		// manipulate the timestamp. should get changed back
 		proposal.Timestamp = proposal.Timestamp.Add(time.Millisecond)
-		var emptySig crypto.Signature
+		var emptySig crypto.AggregatableSignature
 		proposal.Signature = emptySig
 		err = privVal.SignProposal("mychainid", proposal)
 		assert.NoError(t, err, "expected no error on signing same proposal")
@@ -205,7 +205,7 @@ func TestDifferByTimestamp(t *testing.T) {
 	{
 		voteType := VoteTypePrevote
 		blockID := BlockID{[]byte{1, 2, 3}, PartSetHeader{}}
-		vote := newVote(privVal.Address, 0, height, round, voteType, blockID)
+		vote := newVote(privVal.Address, 0, 1, height, round, voteType, blockID)
 		err := privVal.SignVote("mychainid", vote)
 		assert.NoError(t, err, "expected no error signing vote")
 
@@ -215,7 +215,7 @@ func TestDifferByTimestamp(t *testing.T) {
 
 		// manipulate the timestamp. should get changed back
 		vote.Timestamp = vote.Timestamp.Add(time.Millisecond)
-		var emptySig crypto.Signature
+		var emptySig crypto.AggregatableSignature
 		vote.Signature = emptySig
 		err = privVal.SignVote("mychainid", vote)
 		assert.NoError(t, err, "expected no error on signing same vote")
@@ -226,15 +226,17 @@ func TestDifferByTimestamp(t *testing.T) {
 	}
 }
 
-func newVote(addr Address, idx int, height int64, round int, typ byte, blockID BlockID) *Vote {
+func newVote(addr Address, idx int, numval int, height int64, round int, typ byte, blockID BlockID) *Vote {
+	m := make([]int64, numval)
+	m[idx] = 1
 	return &Vote{
-		ValidatorAddress: addr,
-		ValidatorIndex:   idx,
-		Height:           height,
-		Round:            round,
-		Type:             typ,
-		Timestamp:        time.Now().UTC(),
-		BlockID:          blockID,
+		//ValidatorAddress: addr,
+		ValidatorIndex: m,
+		Height:         height,
+		Round:          round,
+		Type:           typ,
+		Timestamp:      time.Now().UTC(),
+		BlockID:        blockID,
 	}
 }
 

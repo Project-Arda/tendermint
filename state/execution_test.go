@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	privKey      = crypto.GenPrivKeyEd25519FromSecret([]byte("execution_test"))
+	privKey      = crypto.GenPrivKeyAltbn128()
 	chainID      = "execution_chain"
 	testPartSize = 65536
 	nTxsPerBlock = 10
@@ -63,12 +63,12 @@ func TestBeginBlockAbsentValidators(t *testing.T) {
 	now := time.Now().UTC()
 	testCases := []struct {
 		desc                     string
-		lastCommitPrecommits     []*types.Vote
+		lastCommitPrecommits     *types.Vote
 		expectedAbsentValidators []int32
 	}{
-		{"none absent", []*types.Vote{{ValidatorIndex: 0, Timestamp: now}, {ValidatorIndex: 1, Timestamp: now}}, []int32{}},
-		{"one absent", []*types.Vote{{ValidatorIndex: 0, Timestamp: now}, nil}, []int32{1}},
-		{"multiple absent", []*types.Vote{nil, nil}, []int32{0, 1}},
+		{"none absent", &types.Vote{ValidatorIndex: []int64{1, 1}, Timestamp: now}, []int32{}},
+		{"one absent", &types.Vote{ValidatorIndex: []int64{1, 0}, Timestamp: now}, []int32{1}},
+		{"multiple absent", nil, []int32{0, 1}},
 	}
 
 	for _, tc := range testCases {

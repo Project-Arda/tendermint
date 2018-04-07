@@ -35,7 +35,10 @@ func TestValidateBlock(t *testing.T) {
 
 	// remove 1/2 the commits
 	block = MakeBlock(h, txs, commit)
-	block.LastCommit.Precommits = commit.Precommits[:commit.Size()/2]
+	newpre := commit.Precommits.Copy()
+	newpre.ValidatorIndex[0] = 11
+	//block.LastCommit.Precommits = commit.Precommits[:commit.Size()/2]
+	block.LastCommit.Precommits = newpre
 	block.LastCommit.hash = nil // clear hash or change wont be noticed
 	err = block.ValidateBasic()
 	require.Error(t, err)

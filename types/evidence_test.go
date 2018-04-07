@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	crypto "github.com/tendermint/go-crypto"
 	cmn "github.com/tendermint/tmlibs/common"
 )
 
@@ -13,14 +14,16 @@ type voteData struct {
 	valid bool
 }
 
-func makeVote(val *PrivValidatorFS, chainID string, valIndex int, height int64, round, step int, blockID BlockID) *Vote {
+func makeVote(val *PrivValidatorFS, chainID string, valIndex int, numVal int, height int64, round, step int, blockID BlockID) *Vote {
+	multi := make([]int64, numVal)
+	multi[valIndex] = 1
 	v := &Vote{
-		ValidatorAddress: val.PubKey.Address(),
-		ValidatorIndex:   valIndex,
-		Height:           height,
-		Round:            round,
-		Type:             byte(step),
-		BlockID:          blockID,
+		//ValidatorAddress: val.PubKey.Address(),
+		ValidatorIndex: multi,
+		Height:         height,
+		Round:          round,
+		Type:           byte(step),
+		BlockID:        blockID,
 	}
 	sig := val.PrivKey.Sign(v.SignBytes(chainID))
 	v.Signature = sig
@@ -39,29 +42,34 @@ func TestEvidence(t *testing.T) {
 
 	chainID := "mychain"
 
-	vote1 := makeVote(val, chainID, 0, 10, 2, 1, blockID)
-	badVote := makeVote(val, chainID, 0, 10, 2, 1, blockID)
+	vote1 := makeVote(val, chainID, 0, 2, 10, 2, 1, blockID)
+	badVote := makeVote(val, chainID, 0, 2, 10, 2, 1, blockID)
 	badVote.Signature = val2.PrivKey.Sign(badVote.SignBytes(chainID))
 
 	cases := []voteData{
-		{vote1, makeVote(val, chainID, 0, 10, 2, 1, blockID2), true}, // different block ids
-		{vote1, makeVote(val, chainID, 0, 10, 2, 1, blockID3), true},
-		{vote1, makeVote(val, chainID, 0, 10, 2, 1, blockID4), true},
-		{vote1, makeVote(val, chainID, 0, 10, 2, 1, blockID), false},     // wrong block id
-		{vote1, makeVote(val, "mychain2", 0, 10, 2, 1, blockID2), false}, // wrong chain id
-		{vote1, makeVote(val, chainID, 1, 10, 2, 1, blockID2), false},    // wrong val index
-		{vote1, makeVote(val, chainID, 0, 11, 2, 1, blockID2), false},    // wrong height
-		{vote1, makeVote(val, chainID, 0, 10, 3, 1, blockID2), false},    // wrong round
-		{vote1, makeVote(val, chainID, 0, 10, 2, 2, blockID2), false},    // wrong step
-		{vote1, makeVote(val2, chainID, 0, 10, 2, 1, blockID), false},    // wrong validator
-		{vote1, badVote, false},                                          // signed by wrong key
+		{vote1, makeVote(val, chainID, 0, 2, 10, 2, 1, blockID2), true}, // different block ids
+		{vote1, makeVote(val, chainID, 0, 2, 10, 2, 1, blockID3), true},
+		{vote1, makeVote(val, chainID, 0, 2, 10, 2, 1, blockID4), true},
+		{vote1, makeVote(val, chainID, 0, 2, 10, 2, 1, blockID), false},     // wrong block id
+		{vote1, makeVote(val, "mychain2", 0, 2, 10, 2, 1, blockID2), false}, // wrong chain id
+		{vote1, makeVote(val, chainID, 1, 2, 10, 2, 1, blockID2), false},    // wrong val index
+		{vote1, makeVote(val, chainID, 0, 2, 11, 2, 1, blockID2), false},    // wrong height
+		{vote1, makeVote(val, chainID, 0, 2, 10, 3, 1, blockID2), false},    // wrong round
+		{vote1, makeVote(val, chainID, 0, 2, 10, 2, 2, blockID2), false},    // wrong step
+		{vote1, makeVote(val2, chainID, 0, 2, 10, 2, 1, blockID), false},    // wrong validator
+		{vote1, badVote, false},                                             // signed by wrong key
 	}
+
+	pks := make([]crypto.AggregatablePubKey, 2)
+	pks[0] = val.PubKey
+	pks[1] = val2.PubKey
 
 	for _, c := range cases {
 		ev := &DuplicateVoteEvidence{
-			PubKey: val.PubKey,
-			VoteA:  c.vote1,
-			VoteB:  c.vote2,
+			PubKeys:        pks,
+			DuplicateIndex: 0,
+			VoteA:          c.vote1,
+			VoteB:          c.vote2,
 		}
 		if c.valid {
 			assert.Nil(t, ev.Verify(chainID), "evidence should be valid")

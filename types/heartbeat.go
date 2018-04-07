@@ -14,12 +14,12 @@ import (
 // json field tags because we always want the JSON
 // representation to be in its canonical form.
 type Heartbeat struct {
-	ValidatorAddress Address          `json:"validator_address"`
-	ValidatorIndex   int              `json:"validator_index"`
-	Height           int64            `json:"height"`
-	Round            int              `json:"round"`
-	Sequence         int              `json:"sequence"`
-	Signature        crypto.Signature `json:"signature"`
+	ValidatorAddress Address                      `json:"validator_address"`
+	ValidatorIndex   int                          `json:"validator_index"`
+	Height           int64                        `json:"height"`
+	Round            int                          `json:"round"`
+	Sequence         int                          `json:"sequence"`
+	Signature        crypto.AggregatableSignature `json:"signature"`
 }
 
 // SignBytes returns the Heartbeat bytes for signing.

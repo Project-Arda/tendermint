@@ -91,10 +91,12 @@ var _ = wire.RegisterInterface(
 //-------------------------------------------
 
 // DuplicateVoteEvidence contains evidence a validator signed two conflicting votes.
+// FIXME can reduce this to just 3 pubkeys, preaggregate other peoples keys and include duplicate signers pubkey separately
 type DuplicateVoteEvidence struct {
-	PubKey crypto.PubKey
-	VoteA  *Vote
-	VoteB  *Vote
+	PubKeys        []crypto.AggregatablePubKey
+	DuplicateIndex int
+	VoteA          *Vote
+	VoteB          *Vote
 }
 
 // String returns a string representation of the evidence.
@@ -110,12 +112,12 @@ func (dve *DuplicateVoteEvidence) Height() int64 {
 
 // Address returns the address of the validator.
 func (dve *DuplicateVoteEvidence) Address() []byte {
-	return dve.PubKey.Address()
+	return dve.PubKeys[dve.DuplicateIndex].Address()
 }
 
 // Index returns the index of the validator.
 func (dve *DuplicateVoteEvidence) Index() int {
-	return dve.VoteA.ValidatorIndex
+	return dve.DuplicateIndex
 }
 
 // Hash returns the hash of the evidence.
@@ -134,12 +136,17 @@ func (dve *DuplicateVoteEvidence) Verify(chainID string) error {
 	}
 
 	// Address must be the same
-	if !bytes.Equal(dve.VoteA.ValidatorAddress, dve.VoteB.ValidatorAddress) {
-		return fmt.Errorf("DuplicateVoteEvidence Error: Validator addresses do not match. Got %X and %X", dve.VoteA.ValidatorAddress, dve.VoteB.ValidatorAddress)
-	}
+	//FIXME address is of agg pubkey, for verification, check will fail
+	//if !bytes.Equal(dve.VoteA.ValidatorAddress, dve.VoteB.ValidatorAddress) {
+	//	return fmt.Errorf("DuplicateVoteEvidence Error: Validator addresses do not match. Got %X and %X", dve.VoteA.ValidatorAddress, dve.VoteB.ValidatorAddress)
+	//}
 	// XXX: Should we enforce index is the same ?
-	if dve.VoteA.ValidatorIndex != dve.VoteB.ValidatorIndex {
-		return fmt.Errorf("DuplicateVoteEvidence Error: Validator indices do not match. Got %d and %d", dve.VoteA.ValidatorIndex, dve.VoteB.ValidatorIndex)
+	//if dve.VoteA.ValidatorIndex != dve.VoteB.ValidatorIndex {
+	//	return fmt.Errorf("DuplicateVoteEvidence Error: Validator indices do not match. Got %d and %d", dve.VoteA.ValidatorIndex, dve.VoteB.ValidatorIndex)
+	//}
+	//FIXME should check that both validator indicies contain a nonzero element at position dve.DuplicateIndex
+	if dve.VoteA.ValidatorIndex[dve.DuplicateIndex] == 0 || dve.VoteB.ValidatorIndex[dve.DuplicateIndex] == 0 {
+		return fmt.Errorf("Duplicate signer not actually on both votes") //FIXME better error
 	}
 
 	// BlockIDs must be different
@@ -148,10 +155,12 @@ func (dve *DuplicateVoteEvidence) Verify(chainID string) error {
 	}
 
 	// Signatures must be valid
-	if !dve.PubKey.VerifyBytes(dve.VoteA.SignBytes(chainID), dve.VoteA.Signature) {
+	//if !dve.PubKey.VerifyBytes(dve.VoteA.SignBytes(chainID), dve.VoteA.Signature) {
+	if dve.VoteA.Verify(chainID, dve.PubKeys) != nil {
 		return fmt.Errorf("DuplicateVoteEvidence Error verifying VoteA: %v", ErrVoteInvalidSignature)
 	}
-	if !dve.PubKey.VerifyBytes(dve.VoteB.SignBytes(chainID), dve.VoteB.Signature) {
+	//if !dve.PubKey.VerifyBytes(dve.VoteB.SignBytes(chainID), dve.VoteB.Signature) {
+	if dve.VoteB.Verify(chainID, dve.PubKeys) != nil {
 		return fmt.Errorf("DuplicateVoteEvidence Error verifying VoteB: %v", ErrVoteInvalidSignature)
 	}
 

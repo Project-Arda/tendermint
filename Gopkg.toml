@@ -25,6 +25,8 @@
 #   unused-packages = true
 
 
+ignored = ["github.com/dis2/bls12"]
+
 [[constraint]]
   branch = "master"
   name = "github.com/ebuchman/fail-test"
@@ -73,18 +75,33 @@
   name = "github.com/tendermint/abci"
   version = "~0.10.2"
 
-[[constraint]]
+[[override]]
   name = "github.com/tendermint/go-crypto"
-  version = "~0.5.0"
+  source = "github.com/Project-Arda/go-crypto"
+  branch = "multiplicity"
+  revision = "d5c27796ff5a3f29d02340b6dd735428ee2065af"
+
+#[[constraint]]
+#  name = "github.com/Project-Arda/bgls"
+#  branch = "multiplicity"
+
+
+#[[override]]
+#  name = "github.com/dis2/bls12"
+#  branch = "master"
+#
+#[[override]]
+#  name = "github.com/relic-toolkit/relic"
+#  revision = "602605f1fccda1a9208c6e69e7f2a14688f2be1f"
 
 [[constraint]]
   name = "github.com/tendermint/go-wire"
   source = "github.com/tendermint/go-amino"
   version = "~0.7.3"
 
-[[constraint]]
+[[override]]
   name = "github.com/tendermint/tmlibs"
-  version = "~0.7.1"
+  version = "0.7.1"
 
 [[constraint]]
   name = "google.golang.org/grpc"
@@ -92,4 +109,3 @@
 
 [prune]
   go-tests = true
-  unused-packages = true

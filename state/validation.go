@@ -58,13 +58,13 @@ func validateBlock(stateDB dbm.DB, s State, b *types.Block) error {
 
 	// Validate block LastCommit.
 	if b.Height == 1 {
-		if len(b.LastCommit.Precommits) != 0 {
+		if b.LastCommit.Precommits != nil {
 			return errors.New("Block at height 1 (first block) should have no LastCommit precommits")
 		}
 	} else {
-		if len(b.LastCommit.Precommits) != s.LastValidators.Size() {
+		if len(b.LastCommit.Precommits.ValidatorIndex) != s.LastValidators.Size() {
 			return fmt.Errorf("Invalid block commit size. Expected %v, got %v",
-				s.LastValidators.Size(), len(b.LastCommit.Precommits))
+				s.LastValidators.Size(), len(b.LastCommit.Precommits.ValidatorIndex))
 		}
 		err := s.LastValidators.VerifyCommit(
 			s.ChainID, s.LastBlockID, b.Height-1, b.LastCommit)

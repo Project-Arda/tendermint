@@ -22,14 +22,15 @@ func exampleVote(t byte) *Vote {
 	if err != nil {
 		panic(err)
 	}
-
+	m := make([]int64, 100000)
+	m[56789] = 1
 	return &Vote{
-		ValidatorAddress: []byte("addr"),
-		ValidatorIndex:   56789,
-		Height:           12345,
-		Round:            2,
-		Timestamp:        stamp,
-		Type:             t,
+		//ValidatorAddress: []byte("addr"),
+		ValidatorIndex: m,
+		Height:         12345,
+		Round:          2,
+		Timestamp:      stamp,
+		Type:           t,
 		BlockID: BlockID{
 			Hash: []byte("hash"),
 			PartsHeader: PartSetHeader{

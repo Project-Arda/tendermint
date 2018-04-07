@@ -1,8 +1,8 @@
 package types
 
 import (
-	"bytes"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 
@@ -61,6 +61,7 @@ type VoteSet struct {
 	valSet        *ValidatorSet
 	votesBitArray *cmn.BitArray
 	votes         []*Vote                // Primary votes to share
+	count         int                    // Number of votes filled in
 	sum           int64                  // Sum of voting power for seen votes, discounting conflicts
 	maj23         *BlockID               // First 2/3 majority seen
 	votesByBlock  map[string]*blockVotes // string(blockHash|blockParts) -> blockVotes
@@ -148,14 +149,15 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 		return false, ErrVoteNil
 	}
 	valIndex := vote.ValidatorIndex
-	valAddr := vote.ValidatorAddress
 	blockKey := vote.BlockID.Key()
 
 	// Ensure that validator index was set
-	if valIndex < 0 {
-		return false, errors.Wrap(ErrVoteInvalidValidatorIndex, "Index < 0")
-	} else if len(valAddr) == 0 {
-		return false, errors.Wrap(ErrVoteInvalidValidatorAddress, "Empty address")
+	if valIndex == nil {
+		return false, errors.Wrap(ErrVoteInvalidValidatorIndex, "Index is nil")
+	}
+	//check that multipliity array has same length as validator array
+	if len(valIndex) != voteSet.valSet.Size() {
+		return false, errors.Wrap(ErrVoteInvalidValidatorIndex, "Index wrong length")
 	}
 
 	// Make sure the step matches.
@@ -167,38 +169,50 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 			vote.Height, vote.Round, vote.Type)
 	}
 
-	// Ensure that signer is a validator.
-	lookupAddr, val := voteSet.valSet.GetByIndex(valIndex)
-	if val == nil {
-		return false, errors.Wrapf(ErrVoteInvalidValidatorIndex,
-			"Cannot find validator %d in valSet of size %d", valIndex, voteSet.valSet.Size())
+	//Check that max multiplicity is justified by total
+	//pull voting power for each validator, add together, check math
+	//TODO separate function, readable code, comments explaining logic
+	var maxWeight int64 = 0
+	var voteValue int64 = 0
+	numBits := uint8(16) //FIXME should be set by config, or possibly changed over time
+	for i, m := range valIndex {
+		if m > maxWeight {
+			maxWeight = m
+		}
+		if m != 0 {
+			_, val := voteSet.valSet.GetByIndex(i)
+			voteValue += val.VotingPower
+		}
+	}
+	maxAllowableWeight := (int64(1) << (numBits - uint8(math.Ceil(math.Log2(float64(voteSet.valSet.TotalVotingPower())/(3*float64(voteValue))))))) - 1
+	if maxWeight > maxAllowableWeight {
+		return false, errors.Wrap(ErrVoteInvalidValidatorIndex, "Voting power not high enough for multiplciity")
 	}
 
-	// Ensure that the signer has the right address
-	if !bytes.Equal(valAddr, lookupAddr) {
-		return false, errors.Wrapf(ErrVoteInvalidValidatorAddress,
-			"vote.ValidatorAddress (%X) does not match address (%X) for vote.ValidatorIndex (%d)\nEnsure the genesis file is correct across all validators.",
-			valAddr, lookupAddr, valIndex)
-	}
-
-	// If we already know of this vote, return false.
-	if existing, ok := voteSet.getVote(valIndex, blockKey); ok {
-		if existing.Signature.Equals(vote.Signature) {
-			return false, nil // duplicate
-		} else {
-			return false, errors.Wrapf(ErrVoteNonDeterministicSignature, "Existing vote: %v; New vote: %v", existing, vote)
+	//check that vote has non-trivial union difference with voteSet.votesByBlock[blockKey]
+	voteblock, ok := voteSet.votesByBlock[blockKey]
+	if ok {
+		fresh := false
+		for i, m := range valIndex {
+			if !voteblock.bitArray.GetIndex(i) && m != 0 {
+				fresh = true
+			}
+		}
+		if fresh == false {
+			return false, nil //We already have votes from all these validators for this block
+			//TODO may be useful as a reduction element though, should still attempt
 		}
 	}
 
-	// Check signature.
-	if err := vote.Verify(voteSet.chainID, val.PubKey); err != nil {
-		return false, errors.Wrapf(err, "Failed to verify vote with ChainID %s and PubKey %s", voteSet.chainID, val.PubKey)
+	//Check signature
+	if err := vote.Verify(voteSet.chainID, voteSet.valSet.GetPubKeys()); err != nil {
+		return false, errors.Wrapf(err, "Failed to verify vote with ChainID %s and Multi %s", voteSet.chainID, fmt.Sprint(vote.ValidatorIndex))
 	}
 
 	// Add vote and get conflicting vote if any
-	added, conflicting := voteSet.addVerifiedVote(vote, blockKey, val.VotingPower)
-	if conflicting != nil {
-		return added, NewConflictingVoteError(val, conflicting, vote)
+	added, conflicting, idx := voteSet.addVerifiedVote(vote, blockKey)
+	if len(conflicting) != 0 {
+		return added, NewConflictingVoteError(voteSet.valSet.GetPubKeys(), idx, conflicting, vote)
 	} else {
 		if !added {
 			cmn.PanicSanity("Expected to add non-conflicting vote")
@@ -209,61 +223,57 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 }
 
 // Returns (vote, true) if vote exists for valIndex and blockKey
-func (voteSet *VoteSet) getVote(valIndex int, blockKey string) (vote *Vote, ok bool) {
-	if existing := voteSet.votes[valIndex]; existing != nil && existing.BlockID.Key() == blockKey {
-		return existing, true
-	}
-	if existing := voteSet.votesByBlock[blockKey].getByIndex(valIndex); existing != nil {
-		return existing, true
-	}
-	return nil, false
-}
+// func (voteSet *VoteSet) getVote(valIndex int, blockKey string) (vote *Vote, ok bool) {
+// 	if existing := voteSet.votes[valIndex]; existing != nil && existing.BlockID.Key() == blockKey {
+// 		return existing, true
+// 	}
+// 	if existing := voteSet.votesByBlock[blockKey].getByIndex(valIndex); existing != nil {
+// 		return existing, true
+// 	}
+// 	return nil, false
+// }
 
 // Assumes signature is valid.
 // If conflicting vote exists, returns it.
-func (voteSet *VoteSet) addVerifiedVote(vote *Vote, blockKey string, votingPower int64) (added bool, conflicting *Vote) {
+func (voteSet *VoteSet) addVerifiedVote(vote *Vote, blockKey string) (added bool, conflicting []*Vote, conflictingIdx []int) {
 	valIndex := vote.ValidatorIndex
+	conflicting = make([]*Vote, 0)
+	conflictingIdx = make([]int, 0)
 
-	// Already exists in voteSet.votes?
-	if existing := voteSet.votes[valIndex]; existing != nil {
-		if existing.BlockID.Equals(vote.BlockID) {
-			cmn.PanicSanity("addVerifiedVote does not expect duplicate votes")
-		} else {
-			conflicting = existing
+	for key, bvotes := range voteSet.votesByBlock {
+		if key != blockKey {
+			for i, m := range valIndex {
+				if bvotes.bitArray.GetIndex(i) && m != 0 {
+					conflicting = append(conflicting, bvotes.getByIndex(i))
+					conflictingIdx = append(conflictingIdx, i)
+				}
+			}
 		}
-		// Replace vote if blockKey matches voteSet.maj23.
-		if voteSet.maj23 != nil && voteSet.maj23.Key() == blockKey {
-			voteSet.votes[valIndex] = vote
-			voteSet.votesBitArray.SetIndex(valIndex, true)
+	}
+
+	if len(conflicting) == 0 || (voteSet.maj23 != nil && voteSet.maj23.Key() == blockKey) {
+		voteSet.votes[voteSet.count] = vote
+		voteSet.count += 1
+		//TODO reduce current voteSet
+		for i, m := range valIndex {
+			if m != 0 {
+				voteSet.votesBitArray.SetIndex(i, true)
+			}
 		}
-		// Otherwise don't add it to voteSet.votes
-	} else {
-		// Add to voteSet.votes and incr .sum
-		voteSet.votes[valIndex] = vote
-		voteSet.votesBitArray.SetIndex(valIndex, true)
-		voteSet.sum += votingPower
+		voteSet.sum = voteSet.valSet.GetSubsetVotingPower(voteSet.votesBitArray)
 	}
 
 	votesByBlock, ok := voteSet.votesByBlock[blockKey]
 	if ok {
-		if conflicting != nil && !votesByBlock.peerMaj23 {
-			// There's a conflict and no peer claims that this block is special.
-			return false, conflicting
+		if len(conflicting) != 0 && !votesByBlock.peerMaj23 {
+			return false, conflicting, conflictingIdx //FIXME is this consistent?
 		}
-		// We'll add the vote in a bit.
 	} else {
-		// .votesByBlock doesn't exist...
-		if conflicting != nil {
-			// ... and there's a conflicting vote.
-			// We're not even tracking this blockKey, so just forget it.
-			return false, conflicting
-		} else {
-			// ... and there's no conflicting vote.
-			// Start tracking this blockKey
-			votesByBlock = newBlockVotes(false, voteSet.valSet.Size())
-			voteSet.votesByBlock[blockKey] = votesByBlock
-			// We'll add the vote in a bit.
+		if len(conflicting) != 0 {
+			return false, conflicting, conflictingIdx //FIXME check this too
 		}
+		votesByBlock = newBlockVotes(false, voteSet.valSet.Size())
+		voteSet.votesByBlock[blockKey] = votesByBlock
 	}
 
 	// Before adding to votesByBlock, see if we'll exceed quorum
@@ -271,7 +281,7 @@ func (voteSet *VoteSet) addVerifiedVote(vote *Vote, blockKey string, votingPower
 	quorum := voteSet.valSet.TotalVotingPower()*2/3 + 1
 
 	// Add vote to votesByBlock
-	votesByBlock.addVerifiedVote(vote, votingPower)
+	votesByBlock.addVerifiedVote(vote, voteSet.valSet)
 
 	// If we just crossed the quorum threshold and have 2/3 majority...
 	if origSum < quorum && quorum <= votesByBlock.sum {
@@ -280,15 +290,16 @@ func (voteSet *VoteSet) addVerifiedVote(vote *Vote, blockKey string, votingPower
 			maj23BlockID := vote.BlockID
 			voteSet.maj23 = &maj23BlockID
 			// And also copy votes over to voteSet.votes
-			for i, vote := range votesByBlock.votes {
-				if vote != nil {
-					voteSet.votes[i] = vote
-				}
-			}
+			//FIXME, do equiv thing
+			// for i, vote := range votesByBlock.votes {
+			// 	if vote != nil {
+			// 		voteSet.votes[i] = vote
+			// 	}
+			// }
 		}
 	}
 
-	return true, conflicting
+	return true, conflicting, conflictingIdx
 }
 
 // If a peer claims that it has 2/3 majority for given blockKey, call this.
@@ -355,28 +366,15 @@ func (voteSet *VoteSet) BitArrayByBlockID(blockID BlockID) *cmn.BitArray {
 	return nil
 }
 
-// NOTE: if validator has conflicting votes, returns "canonical" vote
-func (voteSet *VoteSet) GetByIndex(valIndex int) *Vote {
-	if voteSet == nil {
-		return nil
-	}
-	voteSet.mtx.Lock()
-	defer voteSet.mtx.Unlock()
-	return voteSet.votes[valIndex]
-}
-
-func (voteSet *VoteSet) GetByAddress(address []byte) *Vote {
-	if voteSet == nil {
-		return nil
-	}
-	voteSet.mtx.Lock()
-	defer voteSet.mtx.Unlock()
-	valIndex, val := voteSet.valSet.GetByAddress(address)
-	if val == nil {
-		cmn.PanicSanity("GetByAddress(address) returned nil")
-	}
-	return voteSet.votes[valIndex]
-}
+// // NOTE: if validator has conflicting votes, returns "canonical" vote
+// func (voteSet *VoteSet) GetByIndex(valIndex int) *Vote {
+// 	if voteSet == nil {
+// 		return nil
+// 	}
+// 	voteSet.mtx.Lock()
+// 	defer voteSet.mtx.Unlock()
+// 	return voteSet.votes[valIndex]
+// }
 
 func (voteSet *VoteSet) HasTwoThirdsMajority() bool {
 	if voteSet == nil {
@@ -484,9 +482,11 @@ func (voteSet *VoteSet) MakeCommit() *Commit {
 	// For every validator, get the precommit
 	votesCopy := make([]*Vote, len(voteSet.votes))
 	copy(votesCopy, voteSet.votes)
+	empty := cmn.NewBitArray(voteSet.valSet.Size())
+	cmt := voteSet.votesByBlock[voteSet.maj23.Key()].GetBestVoteFor(voteSet.valSet, empty)
 	return &Commit{
 		BlockID:    *voteSet.maj23,
-		Precommits: votesCopy,
+		Precommits: cmt,
 	}
 }
 
@@ -502,6 +502,7 @@ type blockVotes struct {
 	peerMaj23 bool          // peer claims to have maj23
 	bitArray  *cmn.BitArray // valIndex -> hasVote?
 	votes     []*Vote       // valIndex -> *Vote
+	count     int           // number of separate votes stored
 	sum       int64         // vote sum
 }
 
@@ -510,24 +511,47 @@ func newBlockVotes(peerMaj23 bool, numValidators int) *blockVotes {
 		peerMaj23: peerMaj23,
 		bitArray:  cmn.NewBitArray(numValidators),
 		votes:     make([]*Vote, numValidators),
+		count:     0,
 		sum:       0,
 	}
 }
 
-func (vs *blockVotes) addVerifiedVote(vote *Vote, votingPower int64) {
-	valIndex := vote.ValidatorIndex
-	if existing := vs.votes[valIndex]; existing == nil {
-		vs.bitArray.SetIndex(valIndex, true)
-		vs.votes[valIndex] = vote
-		vs.sum += votingPower
+func (vs *blockVotes) addVerifiedVote(vote *Vote, valSet *ValidatorSet) {
+	for i, m := range vote.ValidatorIndex {
+		if m != 0 {
+			vs.bitArray.SetIndex(i, true)
+		}
 	}
+	vs.votes[vs.count] = vote
+	vs.count += 1
+	//TODO reduce current voteSet with LLL
+	vs.sum = valSet.GetSubsetVotingPower(vs.bitArray)
+}
+
+func (vs *blockVotes) GetBestVoteFor(valSet *ValidatorSet, current *cmn.BitArray) (vote *Vote) {
+	//FIXME
+	/*
+		Needs to flip bits of current to get target
+		then find best linear combination of known vote vectors whose sum is closest to target
+		also needs to check that weight is under limit for stake value
+
+		used to construct final commit
+	*/
+	return vs.votes[0] //FIXME
 }
 
 func (vs *blockVotes) getByIndex(index int) *Vote {
 	if vs == nil {
 		return nil
 	}
-	return vs.votes[index]
+	//TODO, could cache this with an actual index
+	//returns the first vote which has this validator
+	for _, v := range vs.votes {
+		if v.ValidatorIndex[index] != 0 {
+			return v
+		}
+	}
+	return nil
 }
 
 //--------------------------------------------------------------------------------
